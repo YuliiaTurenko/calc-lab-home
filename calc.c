@@ -1,7 +1,7 @@
 // Yuliia Turenko 260ADB165
 // https://github.com/YulliaTurenko/calc-lab-home>
 // Compile with: gcc -O2 -Wall -Wextra -std=c17 -o calc calc.c -lm
-// Resources used: ChatGPT
+// Resources used: ChatGPT (https://chatgpt.com/share/6ae1af10-5730-83eb-a2c1-32b26e447d9c)
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +10,7 @@
 #include <string.h>
 #include <ctype.h>
 #include <math.h>
+#include <dirent.h>
 
 #define STUDENT_NAME "Yuliia"
 #define STUDENT_LASTNAME "Turenko"
@@ -38,9 +39,15 @@ static int buf_append(Buf *b, const char *s, size_t n)
 {
     size_t need = b->len + n + 1;
 
+    // AI (ChatGPT): prompt "in a C function that appends data 
+    // to a dynamically growing buffer, what to write after 
+    // if (need > b->cap) to handle the buffer capacity correctly..."
+    // Link: https://chatgpt.com/s/t_6ae1993a1a088191abd4958a92411104
+    // I used the idea of starting with an initial capacity of 64 bytes
+    // and doubling the capacity until it is large enough. 
+    // I also used realloc to resize the buffer.
     if (need > b->cap)
     {
-        // AI (ChatGPT): prompt ""
         size_t new_cap = b->cap ? b->cap : 64;
         while (new_cap < need)
             new_cap *= 2;
@@ -93,7 +100,12 @@ typedef enum
     T_BAD
 } TokKind;
 
-// AI (ChatGPT): prompt ""
+// AI (ChatGPT): prompt "How should I define Token and Parser structs in C
+// for a parser that tokenizes numbers, operators, parentheses, and
+// end-of-input markers, while tracking token positions and errors?"
+// Link: https://chatgpt.com/s/t_6ae1992918c48191aed50d668a540fad
+// I used AI to help design the data structures for storing token
+// information, tracking the input position, and reporting parse errors.
 typedef struct
 {
     TokKind kind;
@@ -276,7 +288,12 @@ static int write_whole_file(const char *path, const char *data, size_t len)
     return 0;
 }
 
-// AI (ChatGPT): prompt ""
+// AI (ChatGPT): prompt "How do I check whether a directory exists
+// in C and create it if it does not? Write a function that handles
+// errors and explain the use of stat, S_ISDIR, mkdir, and fprintf."
+// Link: https://chatgpt.com/s/t_6ae19c547d7881918c70b180c0d23078
+// I used AI to help implement directory checking and creation,
+// including error handling with stat and S_ISDIR.
 static int ensure_dir(const char *path)
 {
     struct stat st;
@@ -405,6 +422,12 @@ static long long int_power(long long base, long long exp)
 // Every caller checks p->err_pos after each sub-call, so nothing more is
 // calculated after the first error.
 
+
+// AI (ChatGPT): prompt "Help me implement a descent parser for arithmetic expressions. 
+// Write apply_op handling division by zero and non-finite results with correct error positions..."
+// Link: https://chatgpt.com/s/t_6ae1a4bcb08c8191b7b28f9555a9a174
+// I used AI to implement correctly arithmetic operations in apply_op function and to guide 
+// the implementation of the parsing algorithms.
 static Value parse_expr(Parser *p);
 
 // Does one + - * / step. Here is where int or float arithmetic is chosen:
@@ -575,106 +598,269 @@ static Value parse_expr(Parser *p)
 }
 
 
+// Evaluating the whole text
 
-// TEMPORARY TEST CODE
-
-typedef struct
+// Appends one result line. "%lld" for integers and "%.15g" for floats (rule 10).
+static int format_value(Buf *out, Value v)
 {
-    const char *input;
-    const char *expected;
-} TestCase;
+    char tmp[64];
+    int n;
 
-// Runs the parser on one line
-static void eval_one(const char *text, char *result, size_t size)
+    if (v.is_float)
+        n = snprintf(tmp, sizeof tmp, "%.15g\n", v.d);
+    else
+        n = snprintf(tmp, sizeof tmp, "%lld\n", v.i);
+
+    if (n < 0)
+        return -1;
+
+    return buf_append(out, tmp, (size_t)n);
+}
+
+// Evaluates the whole text line by line.
+static int eval_text(const char *src, Buf *out, size_t *err_pos)
 {
     Parser p;
-    p.src = text;
+    p.src = src;
     p.cur = 0;
     p.err_pos = 0;
+    p.tok.kind = T_EOL;
+    p.tok.pos = 0;
+    p.tok.ival = 0;
+    p.tok.dval = 0.0;
+    *err_pos = 0;
 
-    next_token(&p);
-    Value v = parse_expr(&p);
-    if (!p.err_pos && p.tok.kind != T_EOL)
-        set_error(&p, p.tok.pos);
-
-    if (p.err_pos)
-        snprintf(result, size, "ERROR:%zu", p.err_pos);
-    else if (v.is_float)
-        snprintf(result, size, "%.15g", v.d);
-    else
-        snprintf(result, size, "%lld", v.i);
-}
-
-static void run_parser_tests(void)
-{
-    static const TestCase tests[] = {
-        {"2 + 5 - 3", "4"},
-        {"3 + 2 * 5 - 4", "9"},
-        {"5 + 4 / 0 * 2", "ERROR:9"},
-        {"7 / 2", "3"},
-        {"(0 - 7) / 2", "-3"},
-        {"((2 + 3) * (4 + (6 - 1))) - 10", "35"},
-        {"2 * ()", "ERROR:6"},
-        {"(2 + 3", "ERROR:7"},
-        {"(1 + 2))", "ERROR:8"},
-        {"2 * 3 ** 2 + 1", "19"},
-        {"2 ** 3 ** 2", "512"},
-        {"2 ** (1 - 2)", "ERROR:6"},
-        {"2 + & 5", "ERROR:5"},
-        {"7 + * 3", "ERROR:5"},
-        {"10 + - 3", "ERROR:6"},
-        {"3 * ", "ERROR:5"},
-        {"-5", "ERROR:1"},
-        {"3.5 + 2.5 * 2 - 1.0", "7.5"},
-        {"0.1 + 0.2", "0.3"},
-        {"7 / 2.0", "3.5"},
-        {"0.5 ** (0 - 1)", "2"},
-        {"10.0 ** 400", "ERROR:6"},
-        {"(0 - 8) ** 0.5", "ERROR:9"},
-        {"5.", "ERROR:2"},
-        {"1.5e3", "ERROR:4"},
-    };
-    size_t count = sizeof tests / sizeof tests[0];
-    int failed = 0;
-
-    for (size_t k = 0; k < count; k++)
+    // line_start is an index into the whole text and never a copy of a line.
+    size_t line_start = 0;
+    while (src[line_start] != '\0')
     {
-        char got[64];
-        eval_one(tests[k].input, got, sizeof got);
-        if (strcmp(got, tests[k].expected) != 0)
+        size_t i = line_start;
+        while (src[i] == ' ' || src[i] == '\t')
+            i++;
+
+        // Blank line or comment line (first non-blank char is '#', rule 2):
+        // no output, just jump to the start of the next line.
+        if (src[i] == '\n' || src[i] == '\0' || src[i] == '#')
         {
-            printf("FAIL: \"%s\" expected %s, got %s\n",
-                   tests[k].input, tests[k].expected, got);
-            failed++;
+            const char *nl = strchr(src + i, '\n');
+            if (nl == NULL)
+                break; // last line without '\n'
+
+            line_start = (size_t)(nl - src) + 1;
+            continue;
         }
+
+        p.cur = line_start;
+        next_token(&p);
+        Value v = parse_expr(&p);
+
+        // If something is left on the line, it is an error at that token. This is where an extra ')' is caught.
+        if (!p.err_pos && p.tok.kind != T_EOL)
+            set_error(&p, p.tok.pos);
+
+        // Rule 3: the first error ends everything, no partial results.
+        if (p.err_pos)
+        {
+            *err_pos = p.err_pos;
+            return 0;
+        }
+
+        if (format_value(out, v) != 0)
+            return -1;
+
+        // The current token is T_EOL: its position is the '\n' (or the end of the text). 
+        // The next line starts right after it.
+        line_start = p.tok.pos;
+        if (src[line_start] == '\n')
+            line_start++;
     }
-    printf("parser: %zu tests, %d failed\n", count, failed);
+
+    return 0;
 }
 
-// Reads a file and writes an exact copy to test_out/<base>_<name>_<lastname>_<id>.txt
-static void test_files(const char *in_path)
+
+// Evaluates ONE file and writes the result file into outdir.
+// Returns 0 on success (also when the result is ERROR:<pos>), -1 on I/O problems.
+static int process_file(const char *in_path, const char *outdir)
 {
     Buf text;
     buf_init(&text);
-
-    if (read_whole_file(in_path, &text) == 0)
+    if (read_whole_file(in_path, &text) != 0)
     {
-        printf("read %zu bytes from %s\n", text.len, in_path);
-        char out_path[512];
-        if (ensure_dir("test_out") == 0 &&
-            build_output_path(out_path, sizeof out_path, "test_out", in_path) == 0 &&
-            write_whole_file(out_path, text.data, text.len) == 0)
+        buf_free(&text);
+        return -1; // the message is already printed; outdir is not created
+    }
+
+    Buf out;
+    buf_init(&out);
+    size_t err_pos = 0;
+    int status = eval_text(text.data, &out, &err_pos);
+    buf_free(&text); // the input is not needed any more
+
+    if (status != 0)
+    {
+        fprintf(stderr, "Out of memory\n");
+        buf_free(&out);
+        return -1;
+    }
+
+    // AI (ChatGPT): prompt "Help me implement the part that handles 'err_pos > 0' using a dynamic buffer...
+    // Link: https://chatgpt.com/s/t_6ae1ab1ac8f481919f014bf998afb98a
+    // I used AI to understand how to discard partial results and build the required error message in the output buffer.
+
+    // Rule 3: with an error the file contains ONLY "ERROR:<pos>",
+    // so the results collected so far are thrown away.
+    if (err_pos > 0)
+    {
+        buf_free(&out);
+        buf_init(&out);
+
+        char msg[64];
+        int n = snprintf(msg, sizeof msg, "ERROR:%zu\n", err_pos);
+        
+        if (n < 0 || buf_append(&out, msg, (size_t)n) != 0)
         {
-            printf("wrote a copy to %s\n", out_path);
+            buf_free(&out);
+            return -1;
         }
     }
-    buf_free(&text);
+
+    char out_path[1024];
+    int rc = -1;
+    if (ensure_dir(outdir) == 0 &&
+        build_output_path(out_path, sizeof out_path, outdir, in_path) == 0 &&
+        write_whole_file(out_path, out.data, out.len) == 0)
+    {
+        rc = 0;
+    }
+
+    buf_free(&out);
+    return rc;
 }
+
+// Handles "-d DIR": every regular *.txt file directly inside DIR.
+static int process_dir(const char *dir, const char *outdir)
+{
+    DIR *d = opendir(dir);
+    if (d == NULL)
+    {
+        fprintf(stderr, "Cannot open folder '%s': %s\n", dir, strerror(errno));
+        return -1;
+    }
+
+    // Create the output folder even if there are no .txt files inside.
+    if (ensure_dir(outdir) != 0)
+    {
+        closedir(d);
+        return -1;
+    }
+
+    // AI (ChatGPT): prompt "How do I iterate through a directory in C,
+    // find regular .txt files, safely build their paths, and ignore
+    // directories or special files? Explain the relevant POSIX functions."
+    // Link: https://chatgpt.com/s/t_6ae1acd562e0819190f0b446e5ac2782
+    // I used AI to understand directory iteration, filename filtering, path construction, and checking file types.
+    int rc = 0;
+    struct dirent *entry;
+    while ((entry = readdir(d)) != NULL)
+    {
+        const char *name = entry->d_name;
+        size_t len = strlen(name);
+
+        if (len <= 4 || strcmp(name + len - 4, ".txt") != 0)
+            continue;
+
+        char path[4096];
+        int n = snprintf(path, sizeof path, "%s/%s", dir, name);
+        
+        if (n < 0 || (size_t)n >= sizeof path)
+        {
+            fprintf(stderr, "Path is too long: %s/%s\n", dir, name);
+            rc = -1;
+            continue;
+        }
+
+        struct stat st;
+        if (stat(path, &st) != 0 || !S_ISREG(st.st_mode))
+            continue;
+
+        if (process_file(path, outdir) != 0)
+            rc = -1;
+    }
+
+    closedir(d);
+    return rc;
+}
+
+static void usage(void)
+{
+    fprintf(stderr, "usage: calc [-d DIR | --dir DIR] [-o OUTDIR | --output-dir OUTDIR] [input.txt]\n");
+}
+
 
 int main(int argc, char **argv)
 {
-    run_parser_tests();
-    if (argc >= 2)
-        test_files(argv[1]);
-    return 0;
+    const char *dir = NULL, *outdir = NULL, *input = NULL;
+
+    for (int i = 1; i < argc; i++)
+    {
+        if (strcmp(argv[i], "-d") == 0 || strcmp(argv[i], "--dir") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "Option '%s' needs a value\n", argv[i]);
+                usage();
+                return 1;
+            }
+            dir = argv[++i];
+        }
+        else if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output-dir") == 0)
+        {
+            if (i + 1 >= argc)
+            {
+                fprintf(stderr, "Option '%s' needs a value\n", argv[i]);
+                usage();
+                return 1;
+            }
+            outdir = argv[++i];
+        }
+        else if (argv[i][0] == '-')
+        {
+            fprintf(stderr, "Unknown option '%s'\n", argv[i]);
+            usage();
+            return 1;
+        }
+        else
+        {
+            if (input != NULL)
+            {
+                fprintf(stderr, "Only one input file is allowed\n");
+                usage();
+                return 1;
+            }
+            input = argv[i];
+        }
+    }
+
+    // We need exactly one: a folder (-d) or an input file.
+    if ((dir == NULL) == (input == NULL))
+    {
+        usage();
+        return 1;
+    }
+
+    // Default output folder: <input_base>_<name>_<studentid>, where input_base is the file name 
+    // without ".txt" or, with -d, the folder's name.
+    char default_out[512];
+    if (outdir == NULL)
+    {
+        char base[256];
+        base_name(dir != NULL ? dir : input, base, sizeof base);
+        snprintf(default_out, sizeof default_out, "%s_%s_%s", base, STUDENT_NAME, STUDENT_ID);
+        outdir = default_out;
+    }
+
+    int status = (dir != NULL) ? process_dir(dir, outdir) : process_file(input, outdir);
+
+    return status == 0 ? 0 : 1;
 }
